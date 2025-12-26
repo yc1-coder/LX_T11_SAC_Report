@@ -75,7 +75,7 @@ class ExcelDataProcessor:
         ws1.title = "Omnia Combined Auto"
         # 在第一行留空（实现空出一行的效果）
         # 原来第一行的内容下移一行
-        Title = "Jade EVT Omnia Combined Auto Daily Test Report"
+        Title = "T11 CWB Omnia Combined Auto Daily Test Report"
         cell_a1 = ws1.cell(row=1, column=1, value=Title)
         cell_a1.alignment = Alignment(horizontal='center', vertical='center')
         cell_a1.border = self.thin_border
@@ -1801,24 +1801,24 @@ def main():
     # 创建数据处理器实例
     processor = ExcelDataProcessor('cwd_data.csv')
     # 生成包含多个工作表的Excel文件
-    processor.create_excel_with_sheets('Jade EVT Omnia Combined Auto_20250814.xlsx')
+    processor.create_excel_with_sheets('T11_CWB.xlsx')
     config_processor = ConfigProcess('cwd_data.csv')
-    config_processor.create_excel_with_sheets('Jade EVT Omnia Combined Auto_20250814.xlsx')
+    config_processor.create_excel_with_sheets('T11_CWB.xlsx')
 
     # 调用retest_process函数
     retest_processor = RestestProcess('cwd_data.csv')
-    retest_processor.retest_write('Jade EVT Omnia Combined Auto_20250814.xlsx', 'Omnia Combined Auto')
+    retest_processor.retest_write('T11_CWB.xlsx', 'Omnia Combined Auto')
 
     # 获取所有唯一的config名称
     all_configs = config_processor.get_column_data('config',5).unique().tolist()
     # 批量写入所有配置数据
     for i, config_name in enumerate(all_configs):
         if pd.notna(config_name):
-            config_processor.config_write('Jade EVT Omnia Combined Auto_20250814.xlsx', 'Omnia Combined Auto',
+            config_processor.config_write('T11_CWB.xlsx', 'Omnia Combined Auto',
                                           config_name, start_col=3 + i)
             # 调用每个配置的重测处理方法并写入数据
             sheet_name = str(config_name)[:31] + " " + "Config"  # 与each_config_write中创建的工作表名称保持一致
-            retest_processor.each_retest_write('Jade EVT Omnia Combined Auto_20250814.xlsx',
+            retest_processor.each_retest_write('T11_CWB.xlsx',
                                                sheet_name)
 
 
