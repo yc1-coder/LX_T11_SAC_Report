@@ -19,7 +19,7 @@ class ExcelDataProcessor:
             'end_date': 9,                  #结束日期列 - 第10列
             'retest_type': 11,             #重测类型列 - 第12列
             'config': 4,                      #配置列 - 第13列
-            'wipas_version': 10,          #WiPAS版本列 - 第11列
+            'version': 10,          #WiPAS版本列 - 第11列
             'upper_limit': 0,               #上限行 - 第3行
             'lower_limit': 1                #下限行 - 第4列
         }
@@ -75,7 +75,7 @@ class ExcelDataProcessor:
         ws1.title = "Omnia Combined Auto"
         # 在第一行留空（实现空出一行的效果）
         # 原来第一行的内容下移一行
-        Title = "T11 CWB Omnia Combined Auto Daily Test Report"
+        Title = "T11 Pre_Proto_1 Combined Auto Daily Test Report"
         cell_a1 = ws1.cell(row=1, column=1, value=Title)
         cell_a1.alignment = Alignment(horizontal='center', vertical='center')
         cell_a1.border = self.thin_border
@@ -83,7 +83,7 @@ class ExcelDataProcessor:
         ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
 
         # 获取时间信息写入第二行
-        daily_time_data = self.get_single_cell('end_date',2)
+        daily_time_data = self.get_single_cell('end_date',3)
         if pd.notna(daily_time_data):
             # 使用pandas统一处理日期格式
             date_obj = pd.to_datetime(daily_time_data)
@@ -101,11 +101,11 @@ class ExcelDataProcessor:
 
         # 获取表头数据
         title_headers = self.get_column_data('config',3)
-        title_headers = "Jade-EVT_" + title_headers
+        title_headers = "T11 Pre_Proto_1_" + title_headers
         title_headers = list(dict.fromkeys(title_headers))  # config按顺序排列
 
         # 获取标题行数据（原数据Serial Number列）
-        title_line_data1 = self.get_column_data('wipas_version',3)
+        title_line_data1 = self.get_column_data('version',3)
         title_line_data1 = list(set(title_line_data1))
 
         title_line_data2 = self.get_single_cell('start_date',3)
@@ -148,7 +148,7 @@ class ExcelDataProcessor:
         actual_config_count = len(self.get_column_data('config', 3).unique())
 
         # 获取WiPAS版本信息
-        wipas_versions = list(set(self.get_column_data('wipas_version', 3).dropna()))
+        wipas_versions = list(set(self.get_column_data('version', 3).dropna()))
 
         # 创建列数据 - 只对应实际config数量
         column_data = [
@@ -159,7 +159,7 @@ class ExcelDataProcessor:
 
 
         # 定义第一列的内容
-        first_column_values = ["WiPAS Version",
+        first_column_values = ["Version",
                                "Start Test Date",
                                "Last Test Date",
                                ]
@@ -268,7 +268,7 @@ class ExcelDataProcessor:
         cell_b11.alignment = Alignment(horizontal='center', vertical='center')
         cell_b11.border = self.thin_border
 
-        # 写入B8单元格（总PASS数量减去三次FAIL的个数:937）-- Total Pass Quantity
+        # 写入B8单元格（总PASS数量减去误操作测Pass的个数）-- Total Pass Quantity
         cell_b8 = count_PASS - fail_ge_3_count  # 总数减去三次Fial的数量
         cell_b8 = ws1.cell(row=8, column=2, value=cell_b8)
         cell_b8.alignment = Alignment(horizontal='center', vertical='center')
@@ -419,7 +419,7 @@ class ExcelDataProcessor:
 
                 # 获取当前config的数据以提取WiPAS Version信息
                 config_data = self.df[self.df.iloc[:,self.COLUMN_MAPPING['config']]== config_name].iloc[5:]
-                title_line_data1 = config_data.iloc[:, self.COLUMN_MAPPING['wipas_version']].tolist() #.tolist()保留与否
+                title_line_data1 = config_data.iloc[:, self.COLUMN_MAPPING['version']].tolist() #.tolist()保留与否
                 title_line_data1 = list(set(title_line_data1)) if title_line_data1 else ['N/A']
 
                 # 写入第4-6行的数据（包括WiPAS Version等信息）
