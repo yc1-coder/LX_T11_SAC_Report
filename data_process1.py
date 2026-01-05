@@ -42,13 +42,13 @@ class ExcelDataProcessor:
             raise ValueError(f"未知的列名: {column_name}")
         col_idx = self.COLUMN_MAPPING[column_name]
         return self.df.iloc[start_row:, col_idx]
+
     def get_single_cell(self, column_name, row_idx):
         """获取单个单元格数据"""
         if column_name not in self.COLUMN_MAPPING:
             raise ValueError(f"未知的列名: {column_name}")
         col_idx = self.COLUMN_MAPPING[column_name]
         return self.df.iloc[row_idx, col_idx]
-
 
     def create_excel_with_sheets(self, filename):
         """创建一个包含多个工作表的Excel工作簿"""
@@ -269,7 +269,7 @@ class ExcelDataProcessor:
         cell_b11.border = self.thin_border
 
         # 写入B8单元格（总PASS数量减去误操作测Pass的个数）-- Total Pass Quantity
-        cell_b8 = count_PASS - fail_ge_3_count  # 总数减去三次Fial的数量
+        cell_b8 = count_PASS    #- fail_ge_3_count  # 总数减去三次Fial的数量
         cell_b8 = ws1.cell(row=8, column=2, value=cell_b8)
         cell_b8.alignment = Alignment(horizontal='center', vertical='center')
         cell_b8.border = self.thin_border
@@ -331,7 +331,7 @@ class ExcelDataProcessor:
                 # 为每个config创建一个工作表
                 ws = wb.create_sheet(title=str(config_name)[:31] + " " + "Config")  # Excel工作表名称限制为31个字符
                 # 设置工作表标题
-                title = f"Jade EVT {config_name} Daily Test Report"
+                title = f"T11 {config_name} Daily Test Report"
                 cell_a1 = ws.cell(row=1, column=1, value=title)
                 cell_a1.alignment = Alignment(horizontal='center', vertical='center')
                 cell_a1.border = self.thin_border
@@ -407,7 +407,7 @@ class ExcelDataProcessor:
                 # 为每天的数据创建列标题
                 for i in range(len(daily_starts)):
                     col_index = 3 + i
-                    config_header = f"Jade-EVT_{config_name}"
+                    config_header = f"T11_Pre_Proto_1_{config_name}"
                     cell = ws.cell(row=3, column=col_index, value=config_header)
                     cell.alignment = Alignment(horizontal='center', vertical='center')
                     cell.border = self.thin_border
@@ -896,7 +896,7 @@ class RestestProcess(ExcelDataProcessor):
         # 提取最后的值，只对实际数据行进行处理（跳过上下限行）
         df_data_only = df_all.iloc[2:]  # 跳过前两行（上下限）
         df_data_only = df_data_only.dropna(how='any', subset=[self.df.columns[2], self.df.columns[11],
-                                                              self.df.columns[12]])  # 只针对关键列检查空值
+                                                              self.df.columns[12]])  # 只针对关键列检查空值，某一列存在空值，则删除该行
         df_data_only = df_data_only.drop_duplicates(subset=[self.df.columns[2]], keep='last')  # 基于SN列去重
 
         # 重新合并上下限行和处理后的数据行
@@ -1352,24 +1352,23 @@ class RestestProcess(ExcelDataProcessor):
         for retest_type, count in retest_counts.items():
             retest_percentage[retest_type] = count / total_unique_pass_sum if total_unique_pass_sum > 0 else 0
 
-        # 添加失败测试分析功能 - 使用 demo1.py 的处理方式
+        # 添加失败测试分析功能
         # 获取原始DataFrame的列名
         column_names = self.df.columns
-
         # 提取上下限数据
-        upper_limit_row = self.df.iloc[2]  # 上限行
-        lower_limit_row = self.df.iloc[3]  # 下限行
+        upper_limit_row = self.df.iloc[0]  # 上限行
+        lower_limit_row = self.df.iloc[1]  # 下限行
 
         # 构建一个新的DataFrame，包含上下限和所有数据列
-        df_all = pd.concat([self.df.iloc[2:4], self.df.iloc[5:]]).copy()  # 合并上下限行和数据行
+        df_all = pd.concat([self.df.iloc[0:2], self.df.iloc[3:]]).copy()  # 合并上下限行和数据行
         df_all['original_index'] = df_all.index  # 保存原始索引
 
         # 提取最后的值，只对实际数据行进行处理（跳过上下限行）
         df_data_only = df_all.iloc[2:]  # 跳过前两行（上下限）
         df_data_only = df_data_only.dropna(how='any', subset=[self.df.columns[2], self.df.columns[11],
-                                                              self.df.columns[12]])  # 只针对关键列检查空值
-        df_data_only = df_data_only.drop_duplicates(subset=[self.df.columns[2]], keep='last')  # 基于SN列去重
+                                                              self.df.columns[4]])  # 只针对关键列检查空值
 
+        df_data_only = df_data_only.drop_duplicates(subset=[self.df.columns[2]], keep='last')  # 基于SN列去重
         # 重新合并上下限行和处理后的数据行
         df_all = pd.concat([df_all.iloc[:2], df_data_only]).reset_index(drop=True)
 
@@ -1530,6 +1529,7 @@ class RestestProcess(ExcelDataProcessor):
 
                 # 获取失败测试结果数据
                 failing_tests_results = retest_data.get('failing_tests_results', {})
+
 
                 # 分离特殊重测类型
                 special_retest_type = "TxTestWithPowerSensor Test Error BT 1LE 2402 8 Ether_Scan"
