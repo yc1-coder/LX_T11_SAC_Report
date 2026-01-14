@@ -36,7 +36,7 @@ class ExcelDataProcessor:
             if col_idx >= max_cols:
                 raise ValueError(f"列索引 {col_idx} 超出数据范围，最大列数为 {max_cols}，列名: {col_name}")
 
-    def get_column_data(self, column_name, start_row=5):
+    def get_column_data(self, column_name, start_row=3):
         """根据列名获取数据，支持指定起始行"""
         if column_name not in self.COLUMN_MAPPING:
             raise ValueError(f"未知的列名: {column_name}")
@@ -161,8 +161,7 @@ class ExcelDataProcessor:
         # 定义第一列的内容
         first_column_values = ["Version",
                                "Start Test Date",
-                               "Last Test Date",
-                               ]
+                               "Last Test Date",]
         for row_idx, data in enumerate(column_data, 4):  # 从第4行开始写入数据
             # 第一列添加指定内容
             first_col_value = first_column_values[row_idx - 4] if row_idx - 4 < len(first_column_values) else ""
@@ -244,23 +243,24 @@ class ExcelDataProcessor:
                 cell.fill = fill_15
 
         # 原第16行下移至第17行：Test Waive Quantity
-        cell_a16 = ws1.cell(row=16, column=1, value="Test Waive Quantity")
+        cell_a16 = ws1.cell(row=18, column=1, value="Retest OK Quantity")
         cell_a16.alignment = Alignment(horizontal='center', vertical='center')
         cell_a16.border = self.thin_border
 
-        # 写入B7单元格(计算总PASS个数)
+
+        #计算数值并填入表格
+        # 写入B8单元格(计算总PASS个数) -- Total Pass Quantity
         count_PASS = (self.get_column_data('test_result',3) == 'Pass').sum()
-        cell_b7 = ws1.cell(row=7, column=2, value=count_PASS)
+        cell_b7 = ws1.cell(row=8, column=2, value=count_PASS)
         cell_b7.alignment = Alignment(horizontal='center', vertical='center')
         cell_b7.border = self.thin_border
 
-        # 写入B12单元格(计算FAIL>=3的个数)（原第11行）
+        # 计算FAIL>=3的个数并写入B11单元格
         A = self.get_column_data('serial_number',3)
         B = self.get_column_data('test_result',3)
         data_dict = {'Serial_Number': A, 'Result': B}
         df = pd.DataFrame(data_dict)
         counts = df.groupby(['Serial_Number', 'Result']).size().reset_index(name='次数')
-        # 筛选出FAIL次数>=3的记录
         fail_counts = counts[(counts['Result'] == 'Fail') & (counts['次数'] >= 3)]
         fail_ge_3_count = len(fail_counts)
         # print(fail_ge_3_count)
@@ -268,13 +268,13 @@ class ExcelDataProcessor:
         cell_b11.alignment = Alignment(horizontal='center', vertical='center')
         cell_b11.border = self.thin_border
 
-        # 写入B8单元格（总PASS数量减去误操作测Pass的个数）-- Total Pass Quantity
-        cell_b8 = count_PASS    #- fail_ge_3_count  # 总数减去三次Fial的数量
-        cell_b8 = ws1.cell(row=8, column=2, value=cell_b8)
+        #总PASS数量+三次Fail数量写入B7单元格-- Total Input Quantity
+        cell_b8 = count_PASS  + fail_ge_3_count  # 总数加上三次Fial的数量
+        cell_b8 = ws1.cell(row=7, column=2, value=cell_b8)
         cell_b8.alignment = Alignment(horizontal='center', vertical='center')
         cell_b8.border = self.thin_border
 
-        # 统计既有FAIL又有PASS记录的序列号数量--Retest OK Quantity
+        # 统计既有Fail又有Pass记录的序列号数量--Retest OK Quantity
         pivot_table = df.pivot_table(index='Serial_Number', columns='Result', aggfunc='size', fill_value=0)
         # 确保两列都存在
         fail_col = 'Fail' if 'Fail' in pivot_table.columns else None
@@ -287,32 +287,33 @@ class ExcelDataProcessor:
         cell_b10.alignment = Alignment(horizontal='center', vertical='center')
         cell_b10.border = self.thin_border
 
+
         # 1st Pass Quantity
-        cell_b9 = cell_b8.value - both_fail_pass_count
+        cell_b9 = cell_b7.value - both_fail_pass_count
         cell_b9 = ws1.cell(row=9, column=2, value=cell_b9)
         cell_b9.alignment = Alignment(horizontal='center', vertical='center')
         cell_b9.border = self.thin_border
 
         # Total Pass Rate
-        cell_b12 = ws1.cell(row=12, column=2, value=cell_b8.value / cell_b7.value)
+        cell_b12 = ws1.cell(row=12, column=2, value=cell_b7.value / cell_b8.value)
         cell_b12.number_format = '0.00%'
         cell_b12.alignment = Alignment(horizontal='center', vertical='center')
         cell_b12.border = self.thin_border
 
         # 1st Pass Rate
-        cell_b13 = ws1.cell(row=13, column=2, value=cell_b9.value / cell_b7.value)
+        cell_b13 = ws1.cell(row=13, column=2, value=cell_b9.value / cell_b8.value)
         cell_b13.number_format = '0.00%'
         cell_b13.alignment = Alignment(horizontal='center', vertical='center')
         cell_b13.border = self.thin_border
 
         # Retest OK Rate
-        cell_b14 = ws1.cell(row=14, column=2, value=cell_b10.value / cell_b7.value)
+        cell_b14 = ws1.cell(row=14, column=2, value=cell_b10.value / cell_b8.value)
         cell_b14.number_format = '0.00%'
         cell_b14.alignment = Alignment(horizontal='center', vertical='center')
         cell_b14.border = self.thin_border
 
         # Total Fail Rate
-        cell_b15 = ws1.cell(row=15, column=2, value=fail_ge_3_count / cell_b7.value)
+        cell_b15 = ws1.cell(row=15, column=2, value=fail_ge_3_count / cell_b8.value)
         cell_b15.number_format = '0.00%'
         cell_b15.alignment = Alignment(horizontal='center', vertical='center')
         cell_b15.border = self.thin_border
@@ -324,7 +325,7 @@ class ExcelDataProcessor:
     def each_config_write(self, wb):
         """为每个唯一的config创建单独的工作表，布局与_create_all_config一致"""
         # 获取所有唯一的config名称
-        all_configs = self.get_column_data('config',5).unique().tolist()
+        all_configs = self.get_column_data('config',3).unique().tolist()
 
         for config_name in all_configs:
             if pd.notna(config_name):
@@ -533,7 +534,7 @@ class ExcelDataProcessor:
                         cell.fill = fill_15
 
                 # 第16行：Test Waive Quantity
-                cell_a16 = ws.cell(row=16, column=1, value="Test Waive Quantity")
+                cell_a16 = ws.cell(row=18, column=1, value="Retest OK Quantity")
                 cell_a16.alignment = Alignment(horizontal='center', vertical='center')
                 cell_a16.border = self.thin_border
 
@@ -597,6 +598,7 @@ class ExcelDataProcessor:
                 for col in range(1, max_col + 1):
                     ws.column_dimensions[get_column_letter(col)].width = 25
 
+
 class ConfigProcess(ExcelDataProcessor):
     def __init__(self, csv_file_path, header=0, total_input_qty=None, total_pass_qty=None, first_pass_qty=None,
                  retest_ok_qty=None, fail_qty=None):
@@ -658,17 +660,20 @@ class ConfigProcess(ExcelDataProcessor):
             daily_end_list = 'N/A'
 
         config_stats = df_filtered.groupby(['Test_Result']).size().reset_index(name='Count')
-        # 提取总的pass和fail的数量（包括误差的）
+
+        # 零、提取总的pass的数量（包括误差的，如果有）
         pass_count = int(config_stats[config_stats['Test_Result'] == 'Pass']['Count'].sum())
-        fail_count = int(config_stats[config_stats['Test_Result'] == 'Fail']['Count'].sum())
-        # 一、计算实际的pass数量（去掉误差的）
-        total_pass_count = df_filtered[df_filtered['Test_Result'] == 'Pass']
-        total_pass_count = total_pass_count['Serial_Number'].nunique()
-        self.last_total_pass_count = total_pass_count  # 保存到实际变量供后面计算重测百分比
+        # fail_count = int(config_stats[config_stats['Test_Result'] == 'Fail']['Count'].sum())
+
+        # 一、计算实际的pass数量（去掉误差的，如果有）
+        total_pass_count = df_filtered[df_filtered['Test_Result'] == 'Pass']   #筛选出测试结果为'Pass'的记录
+        total_pass_count = total_pass_count['Serial_Number'].nunique()          #避免同一个序列号多次PASS被重复计算
+        self.last_total_pass_count = total_pass_count                                       # 保存到实际变量供后面计算重测百分比
 
         # 二、计算只测一次就pass的数量
         first_test_records = df_filtered.groupby('Serial_Number').first().reset_index()
         one_pass_count = len(first_test_records[first_test_records['Test_Result'] == 'Pass'])
+
         # 三、计算AB/AAB测试pass的数量
         # 获取每个序列号的测试记录，按索引排序
         retest_groups = df_filtered.groupby('Serial_Number')['Test_Result'].apply(list)
@@ -683,7 +688,8 @@ class ConfigProcess(ExcelDataProcessor):
             '''
             if len(results) > 1 and results[-1] == 'Pass' and 'Fail' in results[:-1]:
                 aab_pass_count += 1
-        # 四、计算三次都FAIL的数量
+
+        # 四、计算三次都Fail的数量
         fail_records = df_filtered[df_filtered['Test_Result'] == 'Fail']
         # 1、统计每个序列号的FAIL数量
         fail_counts = fail_records['Serial_Number'].value_counts()
@@ -692,7 +698,7 @@ class ConfigProcess(ExcelDataProcessor):
         # 3、统计数量
         all_pass_count = len(three_pass_sn)
 
-        self.total_input_qty = pass_count
+        self.total_input_qty = pass_count + all_pass_count   #总pass + 三次fail的数量
         self.total_pass_qty = total_pass_count
         self.first_pass_qty = one_pass_count
         self.retest_ok_qty = aab_pass_count
@@ -702,7 +708,9 @@ class ConfigProcess(ExcelDataProcessor):
         self.retest_ok_rate = self.retest_ok_qty / self.total_input_qty if self.total_input_qty != 0 else 0
         self.fail_rate = self.fail_qty / self.total_input_qty if self.total_input_qty != 0 else 0
 
-        # 按日期分组处理
+
+
+        # 按日期分组处理-每个config下的数据处理逻辑
         daily_results = {}
         for test_date, daily_data in df_filtered.groupby('Test_Data'):
             # 对每天的数据应用相同的计算逻辑
@@ -710,6 +718,7 @@ class ConfigProcess(ExcelDataProcessor):
             # 提取当天的pass和fail的数量
             pass_count = int(daily_stats[daily_stats['Test_Result'] == 'Pass']['Count'].sum())
             fail_count = int(daily_stats[daily_stats['Test_Result'] == 'Fail']['Count'].sum())
+
             # 计算当天的其他指标（复用原有逻辑）
             # 一、计算实际的pass数量（去掉误差的）
             total_pass_count = daily_data[daily_data['Test_Result'] == 'Pass']['Serial_Number'].nunique()
@@ -736,16 +745,16 @@ class ConfigProcess(ExcelDataProcessor):
 
             # 存储每日结果
             daily_results[test_date] = {
-                'total_input_qty': pass_count,
+                'total_input_qty': pass_count + all_fail_count,   #总的pass + 三次fail的数量
                 'unique_pass_qty': total_pass_count,
                 'first_pass_qty': one_pass_count,
                 'retest_ok_qty': aab_pass_count,
                 'fail_qty': all_fail_count,
                 # 计算每日的比率
-                'total_pass_rate': f"{total_pass_count / pass_count:.2%}" if pass_count > 0 else "0.00%",
-                'first_pass_rate': f"{one_pass_count / pass_count:.2%}" if pass_count > 0 else "0.00%",
-                'retest_ok_rate': f"{aab_pass_count / pass_count:.2%}" if pass_count > 0 else "0.00%",
-                'fail_rate': f"{all_fail_count / pass_count:.2%}" if pass_count > 0 else "0.00%"
+                'total_pass_rate': f"{total_pass_count / (pass_count+all_fail_count):.2%}" if (pass_count+all_fail_count) > 0 else "0.00%",
+                'first_pass_rate': f"{one_pass_count / (pass_count+all_fail_count):.2%}" if (pass_count+all_fail_count) > 0 else "0.00%",
+                'retest_ok_rate': f"{aab_pass_count / (pass_count+all_fail_count):.2%}" if (pass_count+all_fail_count) > 0 else "0.00%",
+                'fail_rate': f"{all_fail_count / (pass_count+all_fail_count):.2%}" if (pass_count+all_fail_count) > 0 else "0.00%"
             }
 
         return {
@@ -849,9 +858,9 @@ class RestestProcess(ExcelDataProcessor):
         4、建立表格并写入数据
         5、添加失败测试分析功能
         '''
-        retest_type = self.get_column_data('retest_type',5)
-        station_id = self.get_column_data('station_id',5)
-        sn = self.get_column_data('serial_number',5)
+        retest_type = self.get_column_data('retest_type',3)
+        station_id = self.get_column_data('station_id',3)
+        sn = self.get_column_data('serial_number',3)
         # 创建DataFrame
         df_ct = pd.DataFrame({
             'sn': sn,
@@ -865,52 +874,49 @@ class RestestProcess(ExcelDataProcessor):
         self.retest_type = set(df_filtered['retest_type'])  # 重测的类型
         self.retest_count = df_filtered['retest_type'].value_counts()  # 重测数量
         self.station_id_count = df_filtered.groupby(
-            ['retest_type', 'station_id']).size()  # 按retest_type分组，统计每个类型下各station_id的计数
+            ['retest_type', 'station_id']).size()                   # 按retest_type分组，统计每个类型下各station_id的计数
 
         # 创建 ConfigProcess 实例并获取 last_total_pass_count
         config_processor = ConfigProcess(self.csv_file_path)
-        all_configs = self.get_column_data('config',5).unique().tolist()
+        all_configs = self.get_column_data('config',3).unique().tolist()   #去重取出config
         total_unique_pass_sum = 0
         # 遍历所有配置，累加每个配置的 last_total_pass_count
         for config_name in all_configs:
             if pd.notna(config_name):
-                config_processor.config_process(config_name)  # 用 config_process 会更新 last_total_pass_count
-                total_unique_pass_sum += config_processor.last_total_pass_count  # 使用 last_total_pass_count
+                config_processor.config_process(config_name)                                    # 用 config_process 会更新 last_total_pass_count
+                total_unique_pass_sum += config_processor.total_input_qty               # 使用 total_input_qty
         # 计算每个重测类型的百分比
         retest_percentage = {}
         for retest_type, count in self.retest_count.items():
             retest_percentage[retest_type] = count / total_unique_pass_sum if total_unique_pass_sum > 0 else 0
 
-        # 添加失败测试分析功能 - 使用 demo1.py 的处理方式
+
+        # 添加失败测试分析功能
         # 获取原始DataFrame的列名
         column_names = self.df.columns
-
         # 提取上下限数据
         upper_limit_row = self.df.iloc[self.COLUMN_MAPPING['upper_limit']]  # 上限行
         lower_limit_row = self.df.iloc[self.COLUMN_MAPPING['lower_limit']]  # 下限行
-
         # 构建一个新的DataFrame，包含上下限和所有数据列
-        df_all = pd.concat([self.df.iloc[2:4], self.df.iloc[5:]]).copy()  # 合并上下限行和数据行
+        df_all = pd.concat([self.df.iloc[0:2], self.df.iloc[3:]]).copy()  # 合并上下限行和数据行
         df_all['original_index'] = df_all.index  # 保存原始索引
-
         # 提取最后的值，只对实际数据行进行处理（跳过上下限行）
         df_data_only = df_all.iloc[2:]  # 跳过前两行（上下限）
         df_data_only = df_data_only.dropna(how='any', subset=[self.df.columns[2], self.df.columns[11],
-                                                              self.df.columns[12]])  # 只针对关键列检查空值，某一列存在空值，则删除该行
+                                                              self.df.columns[4]])  # 只针对关键列检查空值，某一列存在空值，则删除该行
         df_data_only = df_data_only.drop_duplicates(subset=[self.df.columns[2]], keep='last')  # 基于SN列去重
-
         # 重新合并上下限行和处理后的数据行
         df_all = pd.concat([df_all.iloc[:2], df_data_only]).reset_index(drop=True)
-
         # 遍历df_all中的每一行，检查是否存在于retest_type中（跳过上下限行）
         result_values = []
-        for index, row in df_all.iloc[2:].iterrows():  # 从第3行开始（索引2），跳过上下限行
-            original_index = row['original_index']  # 获取原始索引
-            retest_val = row.iloc[11]  # Retest Type列的值 (在df_all中是第12列，索引为11)
+        for index, row in df_all.iloc[2:].iterrows():   # 从第3行开始（索引2），跳过上下限行
+            original_index = row['original_index']      # 获取原始索引
+            retest_val = row.iloc[11]                           # Retest Type列的值 (在df_all中是第12列，索引为11)
 
             if retest_val in column_names:
                 # 如果Retest Type的值是列名之一，则获取该行该列的值
                 value = self.df.at[original_index, retest_val]  # 从原始df获取交叉点的值
+
                 result_values.append({
                     'row_index': original_index,
                     'column_name': retest_val,
@@ -919,12 +925,12 @@ class RestestProcess(ExcelDataProcessor):
             else:
                 result_values.append(None)
 
+
+
         # 输出结果并进一步判断
         found_matches = [item for item in result_values if item is not None]
-
         # 初始化失败测试结果
         failing_tests_results = {}
-
         if found_matches:
             # 存储结果用于最后统一输出，按retest_type分组
             output_results = defaultdict(list)
@@ -934,7 +940,7 @@ class RestestProcess(ExcelDataProcessor):
                 col_name = match['column_name']
                 value = match['value']
                 # 获取对应的config值和retest_type值
-                config_value = self.df.iloc[row_idx, 12]
+                config_value = self.df.iloc[row_idx, 4]
                 retest_type_value = self.df.iloc[row_idx, 11]
 
                 # 判断是否为high或low
@@ -988,6 +994,7 @@ class RestestProcess(ExcelDataProcessor):
 
             # 保存失败测试结果
             failing_tests_results = output_results
+
         return {
             'retest_type': self.retest_type,  # 返回重测的类型
             'retest_count': self.retest_count,  # 返回重测的个数
@@ -996,7 +1003,7 @@ class RestestProcess(ExcelDataProcessor):
             'failing_tests_results': failing_tests_results  # 返回失败测试分析结果
         }
 
-    def retest_write(self, excel_file, sheet_name, start_row=17, start_col=1):
+    def retest_write(self, excel_file, sheet_name, start_row=19, start_col=1):
         """
         将retest_process函数的返回值写入Excel文件
         Parameters:
@@ -1170,9 +1177,10 @@ class RestestProcess(ExcelDataProcessor):
             # 在普通数据和特殊数据之间添加一个空行
             current_row += 1
 
-            # 为特殊重测类型添加表头（与原表头格式一致）
+            # 为特殊重测类型添加独立的表头
             special_header_row = current_row
-            for i, header in enumerate(headers):
+            special_headers =["NO.","Fail Type","Fail Count","Percentage","Station ID","Station Count","Failing Tests"]
+            for i, header in enumerate(special_headers):
                 cell = ws.cell(row=special_header_row, column=start_col + i, value=header)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = self.thin_border
@@ -1314,10 +1322,10 @@ class RestestProcess(ExcelDataProcessor):
         4、建立表格并将数据写入每个config工作表
         5、添加失败测试分析功能
         '''
-        sn_config = self.get_column_data('serial_number',5)
-        retest_type_config = self.get_column_data('retest_type',5)
-        station_id_config = self.get_column_data('station_id',5)
-        retest_type_config_name = self.get_column_data('config',5)
+        sn_config = self.get_column_data('serial_number',3)
+        retest_type_config = self.get_column_data('retest_type',3)
+        station_id_config = self.get_column_data('station_id',3)
+        retest_type_config_name = self.get_column_data('config',3)
 
         # 创建DataFrame
         df_ct_config = pd.DataFrame({
@@ -1345,7 +1353,7 @@ class RestestProcess(ExcelDataProcessor):
         # 创建 ConfigProcess 实例并获取 last_total_pass_count
         config_processor = ConfigProcess(self.csv_file_path)
         config_processor.config_process(config_name)
-        total_unique_pass_sum = config_processor.last_total_pass_count
+        total_unique_pass_sum = config_processor.total_input_qty
 
         # 计算每个重测类型的百分比
         retest_percentage = {}
@@ -1372,6 +1380,7 @@ class RestestProcess(ExcelDataProcessor):
         # 重新合并上下限行和处理后的数据行
         df_all = pd.concat([df_all.iloc[:2], df_data_only]).reset_index(drop=True)
 
+
         # 遍历df_all中的每一行，检查是否存在于retest_type中（跳过上下限行）
         result_values = []
         for index, row in df_all.iloc[2:].iterrows():  # 从第3行开始（索引2），跳过上下限行
@@ -1391,7 +1400,6 @@ class RestestProcess(ExcelDataProcessor):
 
         # 输出结果并进一步判断
         found_matches = [item for item in result_values if item is not None]
-
         # 初始化失败测试结果
         failing_tests_results = {}
 
@@ -1404,7 +1412,7 @@ class RestestProcess(ExcelDataProcessor):
                 col_name = match['column_name']
                 value = match['value']
                 # 获取对应的config值和retest_type值 (确保只处理当前config的数据)
-                config_value = self.df.iloc[row_idx, 12]
+                config_value = self.df.iloc[row_idx, 4]
                 retest_type_value = self.df.iloc[row_idx, 11]
 
                 # 只处理当前config的数据
@@ -1470,7 +1478,7 @@ class RestestProcess(ExcelDataProcessor):
         }
 
     # 修改 each_retest_write 函数
-    def each_retest_write(self, excel_file, sheet_name, start_row=17, start_col=1):
+    def each_retest_write(self, excel_file, sheet_name, start_row=19, start_col=1):
         """
         将each_retest_process函数的返回值写入Excel文件的特定config工作表中
         Parameters:
@@ -1655,7 +1663,7 @@ class RestestProcess(ExcelDataProcessor):
                 if special_retest_types:  # 只有当存在特殊重测类型时才添加表头
                     special_header_row = current_row
                     # 写入表头，增加"Failing Tests"列
-                    headers = ["NO.", "Retest Type", "Retest Count", "Percentage", "Station ID", "Station Count",
+                    headers = ["NO.", "Fail Type", "Fail Count", "Percentage", "Station ID", "Station Count",
                                "Failing Tests"]
                     for i, header in enumerate(headers):
                         cell = ws.cell(row=special_header_row, column=start_col + i, value=header)
