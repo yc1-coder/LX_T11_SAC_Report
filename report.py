@@ -242,7 +242,7 @@ class ExcelDataProcessor:
             for cell in row:
                 cell.fill = fill_15
 
-        # 原第16行下移至第17行：Test Waive Quantity
+        # 第18行：Test Waive Quantity
         cell_a16 = ws1.cell(row=18, column=1, value="Retest OK Quantity")
         cell_a16.alignment = Alignment(horizontal='center', vertical='center')
         cell_a16.border = self.thin_border
@@ -533,7 +533,7 @@ class ExcelDataProcessor:
                     for cell in row:
                         cell.fill = fill_15
 
-                # 第16行：Test Waive Quantity
+                # 第18行：Test Waive Quantity
                 cell_a16 = ws.cell(row=18, column=1, value="Retest OK Quantity")
                 cell_a16.alignment = Alignment(horizontal='center', vertical='center')
                 cell_a16.border = self.thin_border
@@ -849,6 +849,7 @@ class RestestProcess(ExcelDataProcessor):
         self.retest_percentage = 0.0  # 重测的百分比
         self.station_id_count = []  # 重测的类型对应的ID和个数统计
 
+
     # 修改 RestestProcess 类中的 retest_process 方法
     def retest_process(self):
         '''
@@ -858,65 +859,136 @@ class RestestProcess(ExcelDataProcessor):
         4、建立表格并写入数据
         5、添加失败测试分析功能
         '''
-        retest_type = self.get_column_data('retest_type',3)
-        station_id = self.get_column_data('station_id',3)
-        sn = self.get_column_data('serial_number',3)
-        # 创建DataFrame
+        # 步骤1：数据准备 - 提取原始数据列
+        retest_type = self.get_column_data('retest_type', 3)
+        station_id = self.get_column_data('station_id', 3)
+        sn = self.get_column_data('serial_number', 3)
+        test_result = self.get_column_data('test_result', 3)
+
+        # 步骤2：创建DataFrame
         df_ct = pd.DataFrame({
             'sn': sn,
             'retest_type': retest_type,
-            'station_id': station_id
+            'station_id': station_id,
+            'test_result': test_result
         })
-        df_filtered = df_ct.dropna(how='any')  # 只保留三列都有值的行
-        df_filtered = df_filtered.drop_duplicates(subset=['sn'], keep='last')
-        df_filtered = df_filtered.reset_index(drop=True)  # 重制索引
 
-        self.retest_type = set(df_filtered['retest_type'])  # 重测的类型
-        self.retest_count = df_filtered['retest_type'].value_counts()  # 重测数量
-        self.station_id_count = df_filtered.groupby(
-            ['retest_type', 'station_id']).size()                   # 按retest_type分组，统计每个类型下各station_id的计数
+        # 步骤3：数据清洗 - 去除空值
+        df_all_records = df_ct.dropna(how='any')
 
-        # 创建 ConfigProcess 实例并获取 last_total_pass_count
+        # 步骤4：数据分离 - 先识别三次FAIL的序列号
+        fail_counts = df_all_records[df_all_records['test_result'] == 'Fail']['sn'].value_counts()
+        three_fail_sn_set = set(fail_counts[fail_counts >= 3].index)
+        # 打印调试信息
+        print(f"FAIL次数统计: {fail_counts.head(10)}")
+        print(f"三次及以上的序列号: {three_fail_sn_set}")
+        print(f"三次及以上FAIL的序列号总数: {len(three_fail_sn_set)}")
+
+
+        # 三次FAIL数据
+        df_three_fail = df_all_records[
+            (df_all_records['test_result'] == 'Fail') &(df_all_records['sn'].isin(three_fail_sn_set))]
+        # 对三次FAIL数据也应用drop_duplicates逻辑，保留每个序列号的最后一条记录
+        df_three_fail = df_three_fail.drop_duplicates(subset=['sn'], keep='last')
+        df_three_fail = df_three_fail.reset_index(drop=True)
+        print(f"三次FAIL数据形状: {df_three_fail.shape}")
+        print(f"三次FAIL数据的retest_type值: {df_three_fail['retest_type'].unique()}")
+
+
+        # 重测分析数据（排除三次FAIL的序列号）
+        df_for_retest = df_all_records[~df_all_records['sn'].isin(three_fail_sn_set)]
+        df_for_retest = df_for_retest.drop_duplicates(subset=['sn'], keep='last')
+        df_for_retest = df_for_retest.reset_index(drop=True)
+
+        # 步骤5：统计计算 - 三次FAIL统计
+        three_fail_types = set(df_three_fail['retest_type']) if not df_three_fail.empty else set()
+        three_fail_counts = df_three_fail['retest_type'].value_counts() if not df_three_fail.empty else pd.Series(
+            dtype='int64')
+        three_fail_station_counts = df_three_fail.groupby(
+            ['retest_type', 'station_id']).size() if not df_three_fail.empty else pd.Series(dtype='int64')
+        print(f"三次FAIL类型: {three_fail_types}")
+        print(f"三次FAIL计数: {three_fail_counts}")
+
+
+        # 步骤5：统计计算 - 重测统计
+        self.retest_type = set(df_for_retest['retest_type']) if not df_for_retest.empty else set()
+        self.retest_count = df_for_retest['retest_type'].value_counts() if not df_for_retest.empty else pd.Series(
+            dtype='int64')
+        self.station_id_count = df_for_retest.groupby(
+            ['retest_type', 'station_id']).size() if not df_for_retest.empty else pd.Series(dtype='int64')
+
+        # 计算百分比
         config_processor = ConfigProcess(self.csv_file_path)
-        all_configs = self.get_column_data('config',3).unique().tolist()   #去重取出config
+        all_configs = self.get_column_data('config', 3).unique().tolist()
         total_unique_pass_sum = 0
-        # 遍历所有配置，累加每个配置的 last_total_pass_count
         for config_name in all_configs:
             if pd.notna(config_name):
-                config_processor.config_process(config_name)                                    # 用 config_process 会更新 last_total_pass_count
-                total_unique_pass_sum += config_processor.total_input_qty               # 使用 total_input_qty
-        # 计算每个重测类型的百分比
+                config_processor.config_process(config_name)
+                total_unique_pass_sum += config_processor.total_input_qty
+
         retest_percentage = {}
         for retest_type, count in self.retest_count.items():
             retest_percentage[retest_type] = count / total_unique_pass_sum if total_unique_pass_sum > 0 else 0
 
+        three_fail_percentage = {}
+        for retest_type, count in three_fail_counts.items():
+            three_fail_percentage[retest_type] = count / total_unique_pass_sum if total_unique_pass_sum > 0 else 0
 
-        # 添加失败测试分析功能
+        # 步骤6：失败测试分析 - 分别对两个数据集进行分析
+        # 重测数据的失败分析
+        failing_tests_results_normal = self.analyze_failing_tests_separate(df_for_retest)
+        # 三次FAIL数据的失败分析
+        failing_tests_results_three_fail = self.analyze_failing_tests_separate(df_three_fail)
+
+        # 步骤7：返回结果 - 分别返回两个数据集的结果
+        return {
+            # 重测数据统计
+            'retest_type': self.retest_type,
+            'retest_count': self.retest_count,
+            'station_id_count': self.station_id_count,
+            'retest_percentage': retest_percentage,
+            'failing_tests_results': failing_tests_results_normal,  # 重测数据的失败分析
+
+            # 三次FAIL数据统计
+            'three_fail_types': three_fail_types,
+            'three_fail_counts': three_fail_counts,
+            'three_fail_station_counts': three_fail_station_counts,
+            'three_fail_percentage': three_fail_percentage,
+            'three_fail_failing_results': failing_tests_results_three_fail  # 三次FAIL数据的失败分析
+        }
+
+    def analyze_failing_tests_separate(self, df_source):
+        """分离的失败测试分析方法 - 专门用于分析特定数据集"""
+        # 如果输入数据为空，返回空结果
+        if df_source.empty:
+            return {}
+
         # 获取原始DataFrame的列名
         column_names = self.df.columns
         # 提取上下限数据
-        upper_limit_row = self.df.iloc[self.COLUMN_MAPPING['upper_limit']]  # 上限行
-        lower_limit_row = self.df.iloc[self.COLUMN_MAPPING['lower_limit']]  # 下限行
-        # 构建一个新的DataFrame，包含上下限和所有数据列
-        df_all = pd.concat([self.df.iloc[0:2], self.df.iloc[3:]]).copy()  # 合并上下限行和数据行
-        df_all['original_index'] = df_all.index  # 保存原始索引
+        upper_limit_row = self.df.iloc[self.COLUMN_MAPPING['upper_limit']]
+        lower_limit_row = self.df.iloc[self.COLUMN_MAPPING['lower_limit']]
+
+        # 构建分析数据
+        df_all = pd.concat([self.df.iloc[0:2], df_source]).copy()
+        df_all['original_index'] = df_all.index
+
         # 提取最后的值，只对实际数据行进行处理（跳过上下限行）
-        df_data_only = df_all.iloc[2:]  # 跳过前两行（上下限）
-        df_data_only = df_data_only.dropna(how='any', subset=[self.df.columns[2], self.df.columns[11],
-                                                              self.df.columns[4]])  # 只针对关键列检查空值，某一列存在空值，则删除该行
-        df_data_only = df_data_only.drop_duplicates(subset=[self.df.columns[2]], keep='last')  # 基于SN列去重
-        # 重新合并上下限行和处理后的数据行
+        df_data_only = df_all.iloc[2:]
+        df_data_only = df_data_only.dropna(how='any',
+                                           subset=[self.df.columns[2], self.df.columns[11], self.df.columns[4]])
+        df_data_only = df_data_only.drop_duplicates(subset=[self.df.columns[2]], keep='last')
         df_all = pd.concat([df_all.iloc[:2], df_data_only]).reset_index(drop=True)
+
         # 遍历df_all中的每一行，检查是否存在于retest_type中（跳过上下限行）
         result_values = []
-        for index, row in df_all.iloc[2:].iterrows():   # 从第3行开始（索引2），跳过上下限行
-            original_index = row['original_index']      # 获取原始索引
-            retest_val = row.iloc[11]                           # Retest Type列的值 (在df_all中是第12列，索引为11)
+        for index, row in df_all.iloc[2:].iterrows():
+            original_index = row['original_index']
+            retest_val = row.iloc[11]
 
             if retest_val in column_names:
                 # 如果Retest Type的值是列名之一，则获取该行该列的值
-                value = self.df.at[original_index, retest_val]  # 从原始df获取交叉点的值
-
+                value = self.df.at[original_index, retest_val]
                 result_values.append({
                     'row_index': original_index,
                     'column_name': retest_val,
@@ -925,12 +997,11 @@ class RestestProcess(ExcelDataProcessor):
             else:
                 result_values.append(None)
 
-
-
         # 输出结果并进一步判断
         found_matches = [item for item in result_values if item is not None]
         # 初始化失败测试结果
         failing_tests_results = {}
+
         if found_matches:
             # 存储结果用于最后统一输出，按retest_type分组
             output_results = defaultdict(list)
@@ -981,7 +1052,7 @@ class RestestProcess(ExcelDataProcessor):
                                     result_category = "normal"
                                 else:
                                     result_category = "NA"
-                        except Exception as e:
+                        except Exception:
                             result_category = "NA"
                     else:
                         # 如果值为空，则标记为NA
@@ -991,17 +1062,9 @@ class RestestProcess(ExcelDataProcessor):
                     result_category = "NA"
                 # 按retest_type分组存储结果
                 output_results[retest_type_value].append((config_value, result_category))
-
             # 保存失败测试结果
             failing_tests_results = output_results
-
-        return {
-            'retest_type': self.retest_type,  # 返回重测的类型
-            'retest_count': self.retest_count,  # 返回重测的个数
-            'station_id_count': self.station_id_count,  # 返回重测ID以及个数统计
-            'retest_percentage': retest_percentage,  # 返回重测百分比
-            'failing_tests_results': failing_tests_results  # 返回失败测试分析结果
-        }
+        return failing_tests_results
 
     def retest_write(self, excel_file, sheet_name, start_row=19, start_col=1):
         """
@@ -1009,7 +1072,7 @@ class RestestProcess(ExcelDataProcessor):
         Parameters:
         excel_file: Excel文件路径
         sheet_name: 工作表名称
-        start_row=17 ：行开始
+        start_row=19 ：行开始
         start_col=1 ：列开始
         """
         # 用retest_process获取数据
@@ -1054,16 +1117,11 @@ class RestestProcess(ExcelDataProcessor):
             # 获取失败测试结果数据
             failing_tests_results = retest_data.get('failing_tests_results', {})
 
-            # 分离特殊重测类型
-            special_retest_type = "TxTestWithPowerSensor Test Error BT 1LE 2402 8 Ether_Scan"
-            special_retest_types = [rt for rt in retest_types if rt == special_retest_type]
-            normal_retest_types = [rt for rt in retest_types if rt != special_retest_type]
-
             # 序号计数器 - 在整个表格中连续递增
             row_number = 1
 
-            # 先处理普通重测类型
-            for retest_type in normal_retest_types:
+            # 处理普通重测类型
+            for retest_type in retest_types:
                 # 获取该retest_type下的所有station记录
                 try:
                     subset = station_data.loc[retest_type]
@@ -1173,40 +1231,50 @@ class RestestProcess(ExcelDataProcessor):
 
                 # 每处理完一个retest_type组，序号递增1
                 row_number += 1
+            # 在重测数据和三次FAIL数据之间添加一个空行
+            current_row += 2
 
-            # 在普通数据和特殊数据之间添加一个空行
-            current_row += 1
-
-            # 为特殊重测类型添加独立的表头
-            special_header_row = current_row
-            special_headers =["NO.","Fail Type","Fail Count","Percentage","Station ID","Station Count","Failing Tests"]
-            for i, header in enumerate(special_headers):
-                cell = ws.cell(row=special_header_row, column=start_col + i, value=header)
+            # 为三次FAIL数据添加独立的表头
+            three_fail_header_row = current_row
+            three_fail_headers = ["NO.", "Three FAIL Type", "FAIL Count", "Percentage", "Station ID", "Station Count",
+                                  "Failing Tests"]
+            for i, header in enumerate(three_fail_headers):
+                cell = ws.cell(row=three_fail_header_row, column=start_col + i, value=header)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = self.thin_border
                 cell.font = Font(bold=True)
             # 设置固定行高
-            ws.row_dimensions[special_header_row].height = 15  # 设置行高为15
+            ws.row_dimensions[three_fail_header_row].height = 15  # 设置行高为15
             current_row += 1
 
-            # 处理特殊重测类型
-            for retest_type in special_retest_types:
-                # 获取该retest_type下的所有station记录
+            # 处理三次FAIL数据
+            # 获取三次FAIL的统计数据
+            three_fail_station_data = retest_data['three_fail_station_counts']
+            three_fail_types = list(
+                three_fail_station_data.index.get_level_values(0).unique()) if not three_fail_station_data.empty else []
+            three_fail_results = retest_data.get('three_fail_failing_results', {})
+
+            # 按三次FAIL计数降序排列
+            three_fail_types.sort(key=lambda x: retest_data['three_fail_counts'].get(x, 0), reverse=True)
+
+            # 处理三次FAIL类型
+            for fail_type in three_fail_types:
+                # 获取该fail_type下的所有station记录
                 try:
-                    subset = station_data.loc[retest_type]
+                    subset = three_fail_station_data.loc[fail_type]
                 except KeyError:
-                    # 如果找不到对应的retest_type，跳过
+                    # 如果找不到对应的fail_type，跳过
                     continue
 
                 # 确保subset是Series格式
                 if not isinstance(subset, pd.Series):
                     subset = pd.Series([subset], index=[subset.name] if hasattr(subset, 'name') else [None])
 
-                # 获取该retest_type的总计数和百分比
-                retest_count = retest_data['retest_count'].get(retest_type, 0)
-                retest_percentage = retest_data['retest_percentage'].get(retest_type, 0)
+                # 获取该fail_type的总计数和百分比
+                fail_count = retest_data['three_fail_counts'].get(fail_type, 0)
+                fail_percentage = retest_data['three_fail_percentage'].get(fail_type, 0)
 
-                # 计算该retest_type有多少个station记录，用于合并单元格
+                # 计算该fail_type有多少个station记录，用于合并单元格
                 station_count = len(subset) if isinstance(subset, pd.Series) else 1
 
                 # 处理每个station_id
@@ -1253,24 +1321,24 @@ class RestestProcess(ExcelDataProcessor):
                         ws.merge_cells(start_row=group_start_row, start_column=start_col,
                                        end_row=group_start_row + station_count - 1, end_column=start_col)
 
-                    # 写入并合并retest_type单元格
-                    retest_type_cell = ws.cell(row=group_start_row, column=start_col + 1, value=str(retest_type))
-                    retest_type_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-                    retest_type_cell.border = self.thin_border
+                    # 写入并合并fail_type单元格
+                    fail_type_cell = ws.cell(row=group_start_row, column=start_col + 1, value=str(fail_type))
+                    fail_type_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                    fail_type_cell.border = self.thin_border
                     if station_count > 1:
                         ws.merge_cells(start_row=group_start_row, start_column=start_col + 1,
                                        end_row=group_start_row + station_count - 1, end_column=start_col + 1)
 
-                    # 写入并合并retest_count单元格
-                    retest_count_cell = ws.cell(row=group_start_row, column=start_col + 2, value=retest_count)
-                    retest_count_cell.alignment = Alignment(horizontal='center', vertical='center')
-                    retest_count_cell.border = self.thin_border
+                    # 写入并合并fail_count单元格
+                    fail_count_cell = ws.cell(row=group_start_row, column=start_col + 2, value=fail_count)
+                    fail_count_cell.alignment = Alignment(horizontal='center', vertical='center')
+                    fail_count_cell.border = self.thin_border
                     if station_count > 1:
                         ws.merge_cells(start_row=group_start_row, start_column=start_col + 2,
                                        end_row=group_start_row + station_count - 1, end_column=start_col + 2)
 
                     # 写入并合并percentage单元格
-                    percentage_value = f"{retest_percentage:.2%}"  # 格式化为百分比
+                    percentage_value = f"{fail_percentage:.2%}"  # 格式化为百分比
                     percentage_cell = ws.cell(row=group_start_row, column=start_col + 3, value=percentage_value)
                     percentage_cell.alignment = Alignment(horizontal='center', vertical='center')
                     percentage_cell.border = self.thin_border
@@ -1280,9 +1348,9 @@ class RestestProcess(ExcelDataProcessor):
 
                     # 写入并合并Failing Tests单元格（在最后一列）
                     failing_tests_content = ""
-                    if failing_tests_results and retest_type in failing_tests_results:
+                    if three_fail_results and fail_type in three_fail_results:
                         # 统计相同config和类型的组合数量
-                        result_counter = Counter(failing_tests_results[retest_type])
+                        result_counter = Counter(three_fail_results[fail_type])
                         # 按config名称排序输出
                         sorted_items = sorted(result_counter.items(), key=lambda x: x[0][0])
                         # 格式化为 config categoryxN 的形式
@@ -1298,7 +1366,7 @@ class RestestProcess(ExcelDataProcessor):
                         ws.merge_cells(start_row=group_start_row, start_column=start_col + 6,
                                        end_row=group_start_row + station_count - 1, end_column=start_col + 6)
 
-                # 每处理完一个retest_type组，序号递增1
+                # 每处理完一个fail_type组，序号递增1
                 row_number += 1
 
             # 在数据写入完成后设置数据行高
@@ -1313,7 +1381,6 @@ class RestestProcess(ExcelDataProcessor):
             print(f"写入Excel文件时出错: {e}")
             return False
 
-    # 修改 each_retest_process 函数
     def each_retest_process(self, config_name):
         '''
         1、提取sn[5:,2]retest[5:,11]列和Station ID [5:,6]和config[5:,12]
@@ -1322,33 +1389,59 @@ class RestestProcess(ExcelDataProcessor):
         4、建立表格并将数据写入每个config工作表
         5、添加失败测试分析功能
         '''
-        sn_config = self.get_column_data('serial_number',3)
-        retest_type_config = self.get_column_data('retest_type',3)
-        station_id_config = self.get_column_data('station_id',3)
-        retest_type_config_name = self.get_column_data('config',3)
+        sn_config = self.get_column_data('serial_number', 3)
+        retest_type_config = self.get_column_data('retest_type', 3)
+        station_id_config = self.get_column_data('station_id', 3)
+        retest_type_config_name = self.get_column_data('config', 3)
+        test_result_config = self.get_column_data('test_result', 3)  # 添加测试结果列
 
         # 创建DataFrame
         df_ct_config = pd.DataFrame({
             'sn_config': sn_config,
             'retest_type_config': retest_type_config,
             'station_id_config': station_id_config,
-            'retest_type_config_name': retest_type_config_name
+            'retest_type_config_name': retest_type_config_name,
+            'test_result_config': test_result_config  # 添加测试结果列
         })
 
         df_filtered_config = df_ct_config.dropna()
 
-        df_filtered_config = df_filtered_config.drop_duplicates(subset=['sn_config'], keep='last')
+        # 步骤1：数据分离 - 先识别三次FAIL的序列号
+        fail_counts = df_filtered_config[df_filtered_config['test_result_config'] == 'Fail']['sn_config'].value_counts()
+        three_fail_sn_set = set(fail_counts[fail_counts >= 3].index)
 
-        df_filtered_config = df_filtered_config.reset_index(drop=True)  # 重制索引
+        # 三次FAIL数据
+        df_three_fail = df_filtered_config[
+            (df_filtered_config['test_result_config'] == 'Fail') & (
+                df_filtered_config['sn_config'].isin(three_fail_sn_set))]
+        # 对三次FAIL数据也应用drop_duplicates逻辑，保留每个序列号的最后一条记录
+        df_three_fail = df_three_fail.drop_duplicates(subset=['sn_config'], keep='last')
+        df_three_fail = df_three_fail.reset_index(drop=True)
+
+        # 重测分析数据（排除三次FAIL的序列号）
+        df_for_retest = df_filtered_config[~df_filtered_config['sn_config'].isin(three_fail_sn_set)]
+        df_for_retest = df_for_retest.drop_duplicates(subset=['sn_config'], keep='last')
+        df_for_retest = df_for_retest.reset_index(drop=True)  # 重制索引
 
         # 筛选特定config的数据
-        df_filtered_config = df_filtered_config[df_filtered_config['retest_type_config_name'] == config_name]
+        df_for_retest = df_for_retest[df_for_retest['retest_type_config_name'] == config_name]
+        df_three_fail = df_three_fail[df_three_fail['retest_type_config_name'] == config_name]
 
         # 统计重测类型、数量和station ID计数
-        retest_types = set(df_filtered_config['retest_type_config'])  # 重测的类型
-        retest_counts = df_filtered_config['retest_type_config'].value_counts()  # 重测的个数
+        retest_types = set(df_for_retest['retest_type_config']) if not df_for_retest.empty else set()  # 重测的类型
+        retest_counts = df_for_retest['retest_type_config'].value_counts() if not df_for_retest.empty else pd.Series(
+            dtype='int64')  # 重测的个数
         # 按retest_type分组，统计每个类型下各station_id的计数
-        station_id_counts = df_filtered_config.groupby(['retest_type_config', 'station_id_config']).size()
+        station_id_counts = df_for_retest.groupby(
+            ['retest_type_config', 'station_id_config']).size() if not df_for_retest.empty else pd.Series(dtype='int64')
+
+        # 统计三次FAIL类型、数量和station ID计数
+        three_fail_types = set(df_three_fail['retest_type_config']) if not df_three_fail.empty else set()  # 三次FAIL的类型
+        three_fail_counts = df_three_fail[
+            'retest_type_config'].value_counts() if not df_three_fail.empty else pd.Series(dtype='int64')  # 三次FAIL的个数
+        # 按retest_type分组，统计每个类型下各station_id的计数
+        three_fail_station_counts = df_three_fail.groupby(
+            ['retest_type_config', 'station_id_config']).size() if not df_three_fail.empty else pd.Series(dtype='int64')
 
         # 创建 ConfigProcess 实例并获取 last_total_pass_count
         config_processor = ConfigProcess(self.csv_file_path)
@@ -1360,6 +1453,11 @@ class RestestProcess(ExcelDataProcessor):
         for retest_type, count in retest_counts.items():
             retest_percentage[retest_type] = count / total_unique_pass_sum if total_unique_pass_sum > 0 else 0
 
+        # 计算每个三次FAIL类型的百分比
+        three_fail_percentage = {}
+        for fail_type, count in three_fail_counts.items():
+            three_fail_percentage[fail_type] = count / total_unique_pass_sum if total_unique_pass_sum > 0 else 0
+
         # 添加失败测试分析功能
         # 获取原始DataFrame的列名
         column_names = self.df.columns
@@ -1368,7 +1466,8 @@ class RestestProcess(ExcelDataProcessor):
         lower_limit_row = self.df.iloc[1]  # 下限行
 
         # 构建一个新的DataFrame，包含上下限和所有数据列
-        df_all = pd.concat([self.df.iloc[0:2], self.df.iloc[3:]]).copy()  # 合并上下限行和数据行
+        df_all = pd.concat([self.df.iloc[0:2], df_for_retest[
+            ['sn_config', 'retest_type_config', 'station_id_config', 'retest_type_config_name']]]).copy()  # 合并上下限行和数据行
         df_all['original_index'] = df_all.index  # 保存原始索引
 
         # 提取最后的值，只对实际数据行进行处理（跳过上下限行）
@@ -1379,7 +1478,6 @@ class RestestProcess(ExcelDataProcessor):
         df_data_only = df_data_only.drop_duplicates(subset=[self.df.columns[2]], keep='last')  # 基于SN列去重
         # 重新合并上下限行和处理后的数据行
         df_all = pd.concat([df_all.iloc[:2], df_data_only]).reset_index(drop=True)
-
 
         # 遍历df_all中的每一行，检查是否存在于retest_type中（跳过上下限行）
         result_values = []
@@ -1469,15 +1567,123 @@ class RestestProcess(ExcelDataProcessor):
             # 保存失败测试结果
             failing_tests_results = output_results
 
+        # 对三次FAIL数据进行失败测试分析
+        three_fail_failing_results = {}
+        if not df_three_fail.empty:
+            # 构建用于三次FAIL数据的分析DataFrame
+            df_all_fail = pd.concat([self.df.iloc[0:2], df_three_fail[
+                ['sn_config', 'retest_type_config', 'station_id_config', 'retest_type_config_name']]]).copy()
+            df_all_fail['original_index'] = df_all_fail.index
+
+            # 提取最后的值，只对实际数据行进行处理（跳过上下限行）
+            df_data_only_fail = df_all_fail.iloc[2:]
+            df_data_only_fail = df_data_only_fail.dropna(how='any', subset=[self.df.columns[2], self.df.columns[11],
+                                                                            self.df.columns[4]])
+
+            df_data_only_fail = df_data_only_fail.drop_duplicates(subset=[self.df.columns[2]], keep='last')
+            df_all_fail = pd.concat([df_all_fail.iloc[:2], df_data_only_fail]).reset_index(drop=True)
+
+            # 遍历df_all_fail中的每一行，检查是否存在于retest_type中（跳过上下限行）
+            fail_result_values = []
+            for index, row in df_all_fail.iloc[2:].iterrows():
+                original_index = row['original_index']
+                retest_val = row.iloc[11]
+
+                if retest_val in column_names:
+                    # 如果Retest Type的值是列名之一，则获取该行该列的值
+                    value = self.df.at[original_index, retest_val]
+                    fail_result_values.append({
+                        'row_index': original_index,
+                        'column_name': retest_val,
+                        'value': value
+                    })
+                else:
+                    fail_result_values.append(None)
+
+            # 输出结果并进一步判断
+            found_fail_matches = [item for item in fail_result_values if item is not None]
+
+            if found_fail_matches:
+                # 存储结果用于最后统一输出，按retest_type分组
+                output_fail_results = defaultdict(list)
+
+                for match in found_fail_matches:
+                    row_idx = match['row_index']
+                    col_name = match['column_name']
+                    value = match['value']
+                    # 获取对应的config值和retest_type值 (确保只处理当前config的数据)
+                    config_value = self.df.iloc[row_idx, 4]
+                    retest_type_value = self.df.iloc[row_idx, 11]
+
+                    # 只处理当前config的数据
+                    if config_value == config_name:
+                        # 判断是否为high或low
+                        result_category = None
+                        # 改进的数值类型检查
+                        try:
+                            # 尝试将值转换为浮点数来判断是否为数值
+                            if pd.notna(value):
+                                # 先尝试转换为数值
+                                numeric_value = float(value)
+                                # 根据上下限判断是否为high/ low
+                                try:
+                                    # 使用已定义的上下限变量
+                                    high_limit = upper_limit_row.get(col_name, None)
+                                    low_limit = lower_limit_row.get(col_name, None)
+                                    # 处理上下限数据
+                                    high_valid = False
+                                    low_valid = False
+                                    if pd.notna(high_limit):
+                                        try:
+                                            high_limit = float(high_limit)
+                                            high_valid = True
+                                        except (ValueError, TypeError):
+                                            pass
+                                    if pd.notna(low_limit):
+                                        try:
+                                            low_limit = float(low_limit)
+                                            low_valid = True
+                                        except (ValueError, TypeError):
+                                            pass
+                                    # 进行比较判断
+                                    if high_valid and numeric_value >= high_limit:
+                                        result_category = "high"
+                                    elif low_valid and numeric_value <= low_limit:
+                                        result_category = "low"
+                                    else:
+                                        if high_valid or low_valid:
+                                            result_category = "normal"
+                                        else:
+                                            result_category = "NA"
+                                except Exception as e:
+                                    result_category = "NA"
+                            else:
+                                # 如果值为空，则标记为NA
+                                result_category = "NA"
+                        except (ValueError, TypeError):
+                            # 如果无法转换为数值，也标记为NA
+                            result_category = "NA"
+                        # 按retest_type分组存储结果
+                        output_fail_results[retest_type_value].append((config_value, result_category))
+
+                # 保存三次FAIL失败测试结果
+                three_fail_failing_results = output_fail_results
+
         return {
             'retest_type_config': retest_types,
             'retest_count_config': retest_counts,
             'station_id_count_config': station_id_counts,
             'retest_percentage_config': retest_percentage,
-            'failing_tests_results': failing_tests_results  # 新增失败测试分析结果
+            'failing_tests_results': failing_tests_results,  # 新增失败测试分析结果
+
+            # 三次FAIL数据统计
+            'three_fail_types_config': three_fail_types,
+            'three_fail_counts_config': three_fail_counts,
+            'three_fail_station_counts_config': three_fail_station_counts,
+            'three_fail_percentage_config': three_fail_percentage,
+            'three_fail_failing_results_config': three_fail_failing_results  # 三次FAIL失败测试分析结果
         }
 
-    # 修改 each_retest_write 函数
     def each_retest_write(self, excel_file, sheet_name, start_row=19, start_col=1):
         """
         将each_retest_process函数的返回值写入Excel文件的特定config工作表中
@@ -1538,19 +1744,17 @@ class RestestProcess(ExcelDataProcessor):
                 # 获取失败测试结果数据
                 failing_tests_results = retest_data.get('failing_tests_results', {})
 
-
-                # 分离特殊重测类型
-                special_retest_type = "TxTestWithPowerSensor Test Error BT 1LE 2402 8 Ether_Scan"
-                special_retest_types = [rt for rt in retest_types if rt == special_retest_type]
-                normal_retest_types = [rt for rt in retest_types if rt != special_retest_type]
-
                 # 序号计数器 - 在整个表格中连续递增
                 row_number = 1
 
-                # 先处理普通重测类型
-                for retest_type in normal_retest_types:
+                # 处理普通重测类型
+                for retest_type in retest_types:
                     # 获取该retest_type下的所有station记录
-                    subset = station_data.loc[retest_type]
+                    try:
+                        subset = station_data.loc[retest_type]
+                    except KeyError:
+                        # 如果找不到对应的retest_type，跳过
+                        continue
 
                     # 确保subset是Series格式
                     if not isinstance(subset, pd.Series):
@@ -1656,136 +1860,146 @@ class RestestProcess(ExcelDataProcessor):
                     # 每处理完一个retest_type组，序号递增1
                     row_number += 1
 
-                # 在普通数据和特殊数据之间添加一个空行
+                # 在重测数据和三次FAIL数据之间添加一个空行
+                current_row += 2
+
+                # 为三次FAIL数据添加独立的表头
+                three_fail_header_row = current_row
+                three_fail_headers = ["NO.", "Three FAIL Type", "FAIL Count", "Percentage", "Station ID",
+                                      "Station Count",
+                                      "Failing Tests"]
+                for i, header in enumerate(three_fail_headers):
+                    cell = ws.cell(row=three_fail_header_row, column=start_col + i, value=header)
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    cell.border = self.thin_border
+                    cell.font = Font(bold=True)
+                # 设置固定行高
+                ws.row_dimensions[three_fail_header_row].height = 15  # 设置行高为15
                 current_row += 1
 
-                # 为特殊重测类型添加表头（与原表头格式一致）
-                if special_retest_types:  # 只有当存在特殊重测类型时才添加表头
-                    special_header_row = current_row
-                    # 写入表头，增加"Failing Tests"列
-                    headers = ["NO.", "Fail Type", "Fail Count", "Percentage", "Station ID", "Station Count",
-                               "Failing Tests"]
-                    for i, header in enumerate(headers):
-                        cell = ws.cell(row=special_header_row, column=start_col + i, value=header)
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                        cell.border = self.thin_border
-                        cell.font = Font(bold=True)
-                    # 设置固定行高
-                    ws.row_dimensions[special_header_row].height = 15  # 设置行高为15
-                    current_row += 1
+                # 处理三次FAIL数据
+                # 获取三次FAIL的统计数据
+                three_fail_station_data = retest_data['three_fail_station_counts_config']
+                three_fail_types = list(
+                    three_fail_station_data.index.get_level_values(
+                        0).unique()) if not three_fail_station_data.empty else []
+                three_fail_results = retest_data.get('three_fail_failing_results_config', {})
 
-                    # 处理特殊重测类型
-                    for retest_type in special_retest_types:
-                        # 获取该retest_type下的所有station记录
-                        subset = station_data.loc[retest_type]
+                # 按三次FAIL计数降序排列
+                three_fail_types.sort(key=lambda x: retest_data['three_fail_counts_config'].get(x, 0), reverse=True)
 
-                        # 确保subset是Series格式
-                        if not isinstance(subset, pd.Series):
-                            subset = pd.Series([subset], index=[subset.name] if hasattr(subset, 'name') else [None])
+                # 处理三次FAIL类型
+                for fail_type in three_fail_types:
+                    # 获取该fail_type下的所有station记录
+                    try:
+                        subset = three_fail_station_data.loc[fail_type]
+                    except KeyError:
+                        # 如果找不到对应的fail_type，跳过
+                        continue
 
-                        # 获取该retest_type的总计数
-                        retest_count = retest_data['retest_count_config'].get(retest_type, 0)
-                        retest_percentage = retest_data['retest_percentage_config'].get(retest_type, 0)
+                    # 确保subset是Series格式
+                    if not isinstance(subset, pd.Series):
+                        subset = pd.Series([subset], index=[subset.name] if hasattr(subset, 'name') else [None])
 
-                        # 计算该retest_type有多少个station记录，用于合并单元格
-                        station_count = len(subset) if isinstance(subset, pd.Series) else 1
+                    # 获取该fail_type的总计数和百分比
+                    fail_count = retest_data['three_fail_counts_config'].get(fail_type, 0)
+                    fail_percentage = retest_data['three_fail_percentage_config'].get(fail_type, 0)
 
-                        # 处理每个station_id
-                        if isinstance(subset, pd.Series):
-                            items = list(subset.items())
+                    # 计算该fail_type有多少个station记录，用于合并单元格
+                    station_count = len(subset) if isinstance(subset, pd.Series) else 1
+
+                    # 处理每个station_id
+                    if isinstance(subset, pd.Series):
+                        items = list(subset.items())
+                    else:
+                        items = [(subset.name if hasattr(subset, 'name') else '', subset)]
+
+                    # 记录这一组数据的起始行
+                    group_start_row = current_row
+
+                    for idx, (station_id, station_count_val) in enumerate(items):
+                        # 写入序号 - 使用全局递增的row_number，但只在第一行写入
+                        if idx == 0:  # 只在每组的第一行写入序号
+                            ws.cell(row=group_start_row, column=start_col, value=row_number).alignment = Alignment(
+                                horizontal='center', vertical='center')
+                            ws.cell(row=group_start_row, column=start_col).border = self.thin_border
                         else:
-                            items = [(subset.name if hasattr(subset, 'name') else '', subset)]
+                            # 对于同一组的其他行，只添加边框而不写入序号值
+                            ws.cell(row=current_row, column=start_col).border = self.thin_border
 
-                        # 记录这一组数据的起始行
-                        group_start_row = current_row
+                        # 写入station_id和station_count（每行都写入）
+                        modified_station_id = str(station_id)
+                        if modified_station_id.startswith('LXKS_'):
+                            modified_station_id = modified_station_id[5:]
+                        ws.cell(row=current_row, column=start_col + 4, value=modified_station_id).alignment = Alignment(
+                            horizontal='center', vertical='center')
+                        ws.cell(row=current_row, column=start_col + 4).border = self.thin_border
+                        ws.cell(row=current_row, column=start_col + 5, value=station_count_val).alignment = Alignment(
+                            horizontal='center', vertical='center')
+                        ws.cell(row=current_row, column=start_col + 5).border = self.thin_border
 
-                        for idx, (station_id, station_count_val) in enumerate(items):
-                            # 写入序号 - 使用全局递增的row_number，但只在第一行写入
-                            if idx == 0:  # 只在每组的第一行写入序号
-                                ws.cell(row=group_start_row, column=start_col, value=row_number).alignment = Alignment(
-                                    horizontal='center', vertical='center')
-                                ws.cell(row=group_start_row, column=start_col).border = self.thin_border
-                            else:
-                                # 对于同一组的其他行，只添加边框而不写入序号值
-                                ws.cell(row=current_row, column=start_col).border = self.thin_border
+                        # 为所有单元格添加边框
+                        for col_offset in range(7):  # 现在是7列（增加了NO.和Failing Tests列）
+                            cell = ws.cell(row=current_row, column=start_col + col_offset)
+                            if cell.border == Border():  # 只在还没有边框的情况下添加
+                                cell.border = self.thin_border
+                        current_row += 1
 
-                            # 写入station_id和station_count（每行都写入）
-                            modified_station_id = str(station_id)
-                            if modified_station_id.startswith('LXKS_'):
-                                modified_station_id = modified_station_id[5:]
-                            ws.cell(row=current_row, column=start_col + 4,
-                                    value=modified_station_id).alignment = Alignment(
-                                horizontal='center', vertical='center')
-                            ws.cell(row=current_row, column=start_col + 4).border = self.thin_border
-                            ws.cell(row=current_row, column=start_col + 5,
-                                    value=station_count_val).alignment = Alignment(
-                                horizontal='center', vertical='center')
-                            ws.cell(row=current_row, column=start_col + 5).border = self.thin_border
+                    # 在完成一组数据的写入后，合并需要合并的单元格
+                    if station_count > 0:
+                        # 写入并合并NO.单元格（只在需要时合并）
+                        if station_count > 1:
+                            ws.merge_cells(start_row=group_start_row, start_column=start_col,
+                                           end_row=group_start_row + station_count - 1, end_column=start_col)
 
-                            # 为所有单元格添加边框
-                            for col_offset in range(7):  # 现在是7列（增加了NO.和Failing Tests列）
-                                cell = ws.cell(row=current_row, column=start_col + col_offset)
-                                if cell.border == Border():  # 只在还没有边框的情况下添加
-                                    cell.border = self.thin_border
-                            current_row += 1
+                        # 写入并合并fail_type单元格
+                        fail_type_cell = ws.cell(row=group_start_row, column=start_col + 1, value=str(fail_type))
+                        fail_type_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                        fail_type_cell.border = self.thin_border
+                        if station_count > 1:
+                            ws.merge_cells(start_row=group_start_row, start_column=start_col + 1,
+                                           end_row=group_start_row + station_count - 1, end_column=start_col + 1)
 
-                        # 在完成一组数据的写入后，合并需要合并的单元格
-                        if station_count > 0:
-                            # 写入并合并NO.单元格（只在需要时合并）
-                            if station_count > 1:
-                                ws.merge_cells(start_row=group_start_row, start_column=start_col,
-                                               end_row=group_start_row + station_count - 1, end_column=start_col)
+                        # 写入并合并fail_count单元格
+                        fail_count_cell = ws.cell(row=group_start_row, column=start_col + 2, value=fail_count)
+                        fail_count_cell.alignment = Alignment(horizontal='center', vertical='center')
+                        fail_count_cell.border = self.thin_border
+                        if station_count > 1:
+                            ws.merge_cells(start_row=group_start_row, start_column=start_col + 2,
+                                           end_row=group_start_row + station_count - 1, end_column=start_col + 2)
 
-                            # 写入并合并retest_type单元格
-                            retest_type_cell = ws.cell(row=group_start_row, column=start_col + 1,
-                                                       value=str(retest_type))
-                            retest_type_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-                            retest_type_cell.border = self.thin_border
-                            if station_count > 1:
-                                ws.merge_cells(start_row=group_start_row, start_column=start_col + 1,
-                                               end_row=group_start_row + station_count - 1, end_column=start_col + 1)
+                        # 写入并合并percentage单元格
+                        percentage_value = f"{fail_percentage:.2%}"  # 格式化为百分比
+                        percentage_cell = ws.cell(row=group_start_row, column=start_col + 3, value=percentage_value)
+                        percentage_cell.alignment = Alignment(horizontal='center', vertical='center')
+                        percentage_cell.border = self.thin_border
+                        if station_count > 1:
+                            ws.merge_cells(start_row=group_start_row, start_column=start_col + 3,
+                                           end_row=group_start_row + station_count - 1, end_column=start_col + 3)
 
-                            # 写入并合并retest_count单元格
-                            retest_count_cell = ws.cell(row=group_start_row, column=start_col + 2, value=retest_count)
-                            retest_count_cell.alignment = Alignment(horizontal='center', vertical='center')
-                            retest_count_cell.border = self.thin_border
-                            if station_count > 1:
-                                ws.merge_cells(start_row=group_start_row, start_column=start_col + 2,
-                                               end_row=group_start_row + station_count - 1, end_column=start_col + 2)
+                        # 写入并合并Failing Tests单元格（在最后一列）
+                        failing_tests_content = ""
+                        if three_fail_results and fail_type in three_fail_results:
+                            # 统计相同config和类型的组合数量
+                            result_counter = Counter(three_fail_results[fail_type])
+                            # 按config名称排序输出
+                            sorted_items = sorted(result_counter.items(), key=lambda x: x[0][0])
+                            # 格式化为 config categoryxN 的形式
+                            failing_tests_list = []
+                            for (config_val, category), count in sorted_items:
+                                failing_tests_list.append(f"{config_val} {category}x{count}")
+                            failing_tests_content = "\n".join(failing_tests_list)
 
-                            # 写入并合并percentage单元格
-                            percentage_value = f"{retest_percentage:.2%}"  # 格式化为百分比
-                            percentage_cell = ws.cell(row=group_start_row, column=start_col + 3, value=percentage_value)
-                            percentage_cell.alignment = Alignment(horizontal='center', vertical='center')
-                            percentage_cell.border = self.thin_border
-                            if station_count > 1:
-                                ws.merge_cells(start_row=group_start_row, start_column=start_col + 3,
-                                               end_row=group_start_row + station_count - 1, end_column=start_col + 3)
+                        failing_tests_cell = ws.cell(row=group_start_row, column=start_col + 6,
+                                                     value=failing_tests_content)
+                        failing_tests_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                        failing_tests_cell.border = self.thin_border
+                        if station_count > 1:
+                            ws.merge_cells(start_row=group_start_row, start_column=start_col + 6,
+                                           end_row=group_start_row + station_count - 1, end_column=start_col + 6)
 
-                            # 写入并合并Failing Tests单元格（在最后一列）
-                            failing_tests_content = ""
-                            if failing_tests_results and retest_type in failing_tests_results:
-                                # 统计相同config和类型的组合数量
-                                result_counter = Counter(failing_tests_results[retest_type])
-                                # 按config名称排序输出
-                                sorted_items = sorted(result_counter.items(), key=lambda x: x[0][0])
-                                # 格式化为 config categoryxN 的形式
-                                failing_tests_list = []
-                                for (config_val, category), count in sorted_items:
-                                    failing_tests_list.append(f"{config_val} {category}x{count}")
-                                failing_tests_content = "\n".join(failing_tests_list)
-
-                            failing_tests_cell = ws.cell(row=group_start_row, column=start_col + 6,
-                                                         value=failing_tests_content)
-                            failing_tests_cell.alignment = Alignment(horizontal='center', vertical='center',
-                                                                     wrap_text=True)
-                            failing_tests_cell.border = self.thin_border
-                            if station_count > 1:
-                                ws.merge_cells(start_row=group_start_row, start_column=start_col + 6,
-                                               end_row=group_start_row + station_count - 1, end_column=start_col + 6)
-
-                        # 每处理完一个retest_type组，序号递增1
-                        row_number += 1
+                    # 每处理完一个fail_type组，序号递增1
+                    row_number += 1
 
                 # 在数据写入完成后设置数据行高
                 for row_num in range(header_row + 1, current_row):
@@ -1803,6 +2017,7 @@ class RestestProcess(ExcelDataProcessor):
         except Exception as e:
             print(f"写入Excel文件时出错: {e}")
             return False
+
 
 def main():
     """主函数"""
