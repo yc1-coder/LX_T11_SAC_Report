@@ -176,9 +176,14 @@ class ExcelDataProcessor:
                 cell = ws1.cell(row=row_idx, column=col, value=value)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = self.thin_border
-        # 对3～7行区域填充
+
+        #获取实际需要填充的config数量
+        actual_config_count = len(self.get_column_data('config', 3).unique())
+        #计算最大列号:A列(1) + B列(2) + config列数量
+        max_column = 2 + actual_config_count
+        # 对区域填充
         fill_36 = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
-        for row in ws1['A3':'E6']:
+        for row in ws1[f'A3:{get_column_letter(max_column)}6']:
             for cell in row:
                 cell.fill = fill_36
 
@@ -191,7 +196,7 @@ class ExcelDataProcessor:
         cell_a8.border = self.thin_border
         fill_8 = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
         # 对区域填充
-        for row in ws1['A8':'E8']:
+        for row in ws1[f'A8:{get_column_letter(max_column)}8']:
             for cell in row:
                 cell.fill = fill_8
 
@@ -208,7 +213,7 @@ class ExcelDataProcessor:
         cell_a11.border = self.thin_border
         fill_11 = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
         # 对区域填充
-        for row in ws1['A11':'E11']:
+        for row in ws1[f'A11:{get_column_letter(max_column)}11']:
             for cell in row:
                 cell.fill = fill_11
 
@@ -217,7 +222,7 @@ class ExcelDataProcessor:
         cell_a12.border = self.thin_border
         fill_12 = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
         # 对区域填充
-        for row in ws1['A12':'E12']:
+        for row in ws1[f'A12:{get_column_letter(max_column)}12']:
             for cell in row:
                 cell.fill = fill_12
 
@@ -225,7 +230,6 @@ class ExcelDataProcessor:
         cell_a13 = ws1.cell(row=13, column=1, value="1st Pass Rate")
         cell_a13.alignment = Alignment(horizontal='center', vertical='center')
         cell_a13.border = self.thin_border
-        fill_13 = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
 
         # 14行：Retest OK Quantity
         cell_a14 = ws1.cell(row=14, column=1, value="Retest OK Rate")
@@ -238,7 +242,7 @@ class ExcelDataProcessor:
         cell_a15.border = self.thin_border
         fill_15 = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
         # 对区域填充
-        for row in ws1['A15':'R15']:
+        for row in ws1[f'A15:{get_column_letter(max_column)}15']:
             for cell in row:
                 cell.fill = fill_15
 
@@ -246,6 +250,10 @@ class ExcelDataProcessor:
         cell_a16 = ws1.cell(row=18, column=1, value="Retest OK Quantity")
         cell_a16.alignment = Alignment(horizontal='center', vertical='center')
         cell_a16.border = self.thin_border
+        # 添加背景色
+        title_background = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
+        cell_a16.fill = title_background
+
 
 
         #计算数值并填入表格
@@ -537,6 +545,9 @@ class ExcelDataProcessor:
                 cell_a16 = ws.cell(row=18, column=1, value="Retest OK Quantity")
                 cell_a16.alignment = Alignment(horizontal='center', vertical='center')
                 cell_a16.border = self.thin_border
+                # 添加背景色
+                title_background = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
+                cell_a16.fill = title_background
 
                 # 填入统计数据到第二列（与_create_all_config保持一致）
                 # Total Input Quantity
@@ -849,8 +860,6 @@ class RestestProcess(ExcelDataProcessor):
         self.retest_percentage = 0.0  # 重测的百分比
         self.station_id_count = []  # 重测的类型对应的ID和个数统计
 
-
-    # 修改 RestestProcess 类中的 retest_process 方法
     def retest_process(self):
         '''
         1、提取retest[5:,11]列和Station ID [5:,6]列和SN[5:,2]列形成列表
@@ -1095,11 +1104,14 @@ class RestestProcess(ExcelDataProcessor):
             header_row = start_row  # 从指定行开始写入表头
             headers = ["NO.", "Retest Type", "Retest Count", "Percentage", "Station ID", "Station Count",
                        "Failing Tests"]
+            #定义背景色
+            header_fill = PatternFill(start_color="FFD700",end_color="FFD700",fill_type="solid")
             for i, header in enumerate(headers):
                 cell = ws.cell(row=header_row, column=start_col + i, value=header)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = self.thin_border
-                cell.font = Font(bold=True)
+                # cell.font = Font(bold=True, color="FFFFFF")  # 粗体、白色字体更易读
+                cell.fill = header_fill  # 添加背景色填充
             # 设置固定行高
             ws.row_dimensions[header_row].height = 15  # 设置行高为15
 
@@ -1192,6 +1204,7 @@ class RestestProcess(ExcelDataProcessor):
                         ws.merge_cells(start_row=group_start_row, start_column=start_col + 1,
                                        end_row=group_start_row + station_count - 1, end_column=start_col + 1)
 
+
                     # 写入并合并retest_count单元格
                     retest_count_cell = ws.cell(row=group_start_row, column=start_col + 2, value=retest_count)
                     retest_count_cell.alignment = Alignment(horizontal='center', vertical='center')
@@ -1234,18 +1247,37 @@ class RestestProcess(ExcelDataProcessor):
             # 在重测数据和三次FAIL数据之间添加一个空行
             current_row += 2
 
-            # 为三次FAIL数据添加独立的表头
+            #处理三次Fail的类型
+            # 添加"Test Fail Quantity"标题
+            test_fail_title_row = current_row
+            test_fail_title_cell = ws.cell(row=test_fail_title_row, column=start_col, value="Test Fail Quantity")
+            test_fail_title_cell.alignment = Alignment(horizontal='center', vertical='center')
+            test_fail_title_cell.border = self.thin_border
+            # 添加背景色
+            title_background = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
+            test_fail_title_cell.fill = title_background
+            current_row += 1
+
+
+
+            # 为三次Fail数据添加独立的表头
             three_fail_header_row = current_row
-            three_fail_headers = ["NO.", "Three FAIL Type", "FAIL Count", "Percentage", "Station ID", "Station Count",
+            three_fail_headers = ["NO.", "Fail Type", "Fail Count", "Percentage", "Station ID", "Station Count",
                                   "Failing Tests"]
+            # 定义背景色
+            header_fill_1 = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
             for i, header in enumerate(three_fail_headers):
                 cell = ws.cell(row=three_fail_header_row, column=start_col + i, value=header)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = self.thin_border
-                cell.font = Font(bold=True)
+                # cell.font = Font(bold=True)
+                cell.fill = header_fill_1
             # 设置固定行高
             ws.row_dimensions[three_fail_header_row].height = 15  # 设置行高为15
             current_row += 1
+
+            # 重置序号计数器，使三次FAIL部分的NO.重新从1开始
+            row_number = 1
 
             # 处理三次FAIL数据
             # 获取三次FAIL的统计数据
@@ -1718,13 +1750,14 @@ class RestestProcess(ExcelDataProcessor):
 
             # 写入表头，增加"Failing Tests"列
             header_row = start_row  # 从指定行开始写入表头
-            headers = ["NO.", "Retest Type", "Retest Count", "Percentage", "Station ID", "Station Count",
-                       "Failing Tests"]
+            headers = ["NO.", "Retest Type", "Retest Count", "Percentage", "Station ID", "Station Count","Failing Tests"]
+            header_fill_2 = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
             for i, header in enumerate(headers):
                 cell = ws.cell(row=header_row, column=start_col + i, value=header)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
                 cell.border = self.thin_border
-                cell.font = Font(bold=True)
+                # cell.font = Font(bold=True)
+                cell.fill = header_fill_2
             # 设置固定行高
             ws.row_dimensions[header_row].height = 15  # 设置行高为15
 
@@ -1863,19 +1896,33 @@ class RestestProcess(ExcelDataProcessor):
                 # 在重测数据和三次FAIL数据之间添加一个空行
                 current_row += 2
 
+                # 添加"Test Fail Quantity"标题
+                test_fail_title_row = current_row
+                test_fail_title_cell = ws.cell(row=test_fail_title_row, column=start_col, value="Test Fail Quantity")
+                test_fail_title_cell.alignment = Alignment(horizontal='center', vertical='center')
+                test_fail_title_cell.border = self.thin_border
+                title_background = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
+                test_fail_title_cell.fill = title_background
+                current_row += 1
+
+
                 # 为三次FAIL数据添加独立的表头
                 three_fail_header_row = current_row
-                three_fail_headers = ["NO.", "Three FAIL Type", "FAIL Count", "Percentage", "Station ID",
-                                      "Station Count",
-                                      "Failing Tests"]
+                three_fail_headers = ["NO.", "Fail Type", "Fail Count", "Percentage", "Station ID",
+                                      "Station Count","Failing Tests"]
+                header_fill_3 = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
                 for i, header in enumerate(three_fail_headers):
                     cell = ws.cell(row=three_fail_header_row, column=start_col + i, value=header)
                     cell.alignment = Alignment(horizontal='center', vertical='center')
                     cell.border = self.thin_border
-                    cell.font = Font(bold=True)
+                    # cell.font = Font(bold=True)
+                    cell.fill = header_fill_3
                 # 设置固定行高
                 ws.row_dimensions[three_fail_header_row].height = 15  # 设置行高为15
                 current_row += 1
+
+                # 重置序号计数器，使三次FAIL部分的NO.重新从1开始
+                row_number = 1
 
                 # 处理三次FAIL数据
                 # 获取三次FAIL的统计数据
@@ -1970,6 +2017,7 @@ class RestestProcess(ExcelDataProcessor):
 
                         # 写入并合并percentage单元格
                         percentage_value = f"{fail_percentage:.2%}"  # 格式化为百分比
+
                         percentage_cell = ws.cell(row=group_start_row, column=start_col + 3, value=percentage_value)
                         percentage_cell.alignment = Alignment(horizontal='center', vertical='center')
                         percentage_cell.border = self.thin_border
